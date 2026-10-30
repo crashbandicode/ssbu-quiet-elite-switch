@@ -323,19 +323,25 @@ pub fn main() {
         report_install(&mut report);
         return;
     }
-    for site in model::SITES {
-        if !unsafe { guard_matches(site) } {
-            CHECKS.store(2, Ordering::Release);
-            let _ = write!(report, " result=guard_mismatch site={}", site.name);
-            report_install(&mut report);
-            return;
-        }
-    }
-    CHECKS.store(1, Ordering::Release);
-    // One hook per instruction: install it when this plugin owns `.1a1caa8`,
-    // otherwise run from the owner's hook (see `share`).
+    // Election first (see `share`): when another plugin owns `.1a1caa8` its
+    // hook has already changed those bytes, and the owner's `register` runs
+    // its own guard, so only the owner guards the site here.
     let own_table = &SITE_SHARE as *const share::SiteShareV1 as usize;
-    match share::role(site_owner_table(), own_table) {
+    let role = share::role(site_owner_table(), own_table);
+    if role == share::Role::Owner {
+        for site in model::SITES {
+            if !unsafe { guard_matches(site) } {
+                CHECKS.store(2, Ordering::Release);
+                let _ = write!(report, " result=guard_mismatch site={}", site.name);
+                report_install(&mut report);
+                return;
+            }
+        }
+        CHECKS.store(1, Ordering::Release);
+    }
+    // One hook per instruction: install it when this plugin owns `.1a1caa8`,
+    // otherwise run from the owner's hook.
+    match role {
         share::Role::Owner => {
             skyline::install_hooks!(popup);
             OWNER.store(true, Ordering::Release);

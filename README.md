@@ -17,7 +17,11 @@ back from the Elite Smash colours.
 
 ![After: no pop-up](docs/media/after.gif)
 
-GIF_CAPTION
+*Eden, 2026-10-30: Sephiroth is in Elite Smash, so the character select
+opens as Quickplay (Elite Smash). Selecting him, then Pyra/Mythra (not in
+Elite Smash): without the plugin the game stops on "You haven't unlocked
+Elite Smash with this fighter. Returning to standard matchmaking."; with it,
+the screen goes straight back to Quickplay and Ready to Fight.*
 
 - One hook, guarded: it installs only on 13.0.5 with the hooked code
   unchanged ([details](docs/HOOK.md)).
@@ -25,6 +29,10 @@ GIF_CAPTION
   share one hook through `ssbu_inline_site_1a1caa8_v1` (found with
   `nn::ro::LookupSymbol`, any load order) and both keep working.
 - UI only: no rating, network or match state changes.
+
+**Tested:** Eden, 2026-10-30, 13.0.5 on LAN Online with a rating runtime:
+install line `result=installed role=owner hooks=popup heap_allocations=0`,
+pop-up gone as above. Not tested on Nintendo's servers or a real Switch.
 
 ## Install
 

@@ -9,14 +9,24 @@
 //! `.1a1caa8` and written only at `.1a1cb0c`. The plugin sets it just before
 //! that read; the theme switch is unchanged.
 
+use crate::chain;
+
 pub const SUPPORTED_VERSION: &str = "13.0.5";
 
-/// A hooked site and the 64 bytes that must be there (13.0.5 image). Another
-/// plugin's hook here means this plugin installs nothing.
+/// A hooked site and the 64 bytes there in the 13.0.5 image. Another
+/// plugin's hook on it is chained onto (`chain::entry`); any other change
+/// leaves it alone.
 pub struct Site {
     pub name: &'static str,
     pub offset: usize,
     pub guard: [u8; 64],
+}
+
+impl Site {
+    /// The 13.0.5 instructions.
+    pub fn stock(&self) -> [u32; chain::WORDS] {
+        chain::words(&self.guard)
+    }
 }
 
 /// `ldrb w8, [x20, #0xf8e]`, the pop-up flag read; x20 = the CSS object.
@@ -94,5 +104,18 @@ mod tests {
     fn hooked_sites_match_the_site_list() {
         assert_eq!(HOOKED_SITES, [POPUP_OFFSET]);
         assert_eq!(SITES.len(), 1);
+    }
+
+    #[test]
+    fn another_plugins_hook_on_the_site_is_chained() {
+        let at = 0x80_0000_0000 + POPUP_OFFSET as u64;
+        let stock = POPUP.stock();
+        assert_eq!(chain::entry(&stock, &stock, at), chain::Entry::Stock);
+        let mut words = stock;
+        words[0] = 0x1400_0100; // b +0x400
+        assert_eq!(chain::entry(&stock, &words, at), chain::Entry::Branch(at + 0x400));
+        // The flag read itself changed some other way: left alone.
+        words[0] = stock[0] ^ 0x10;
+        assert_eq!(chain::entry(&stock, &words, at), chain::Entry::Foreign);
     }
 }

@@ -40,12 +40,20 @@ changes; the hook writes only that byte of the CSS object.
   and calls every registered callback from it; the others register and
   install nothing. Both keep working. The install line says
   `role=owner … guests=<n>` or `role=guest owner=<address>`.
-- The 64 bytes at `1a1caa8` must be the 13.0.5 ones; they include the flag
-  read and the four instructions that build the pop-up record. A plugin
-  that patched them without the sharing export, or another game version,
-  means this plugin installs nothing (`result=guard_mismatch site=popup`,
-  `unsupported_version` or `owner_refused` in
-  `sd:/ultimate/ssbu-quiet-elite-switch/events.log`).
+- **A plugin that hooks it without sharing (0.2.0, `src/chain.rs`, the same
+  file as gsp-visualizer's, the rules elite-rematch uses).** The 64 bytes at
+  `1a1caa8` (the flag read and the four instructions that build the pop-up
+  record) must be the 13.0.5 ones apart from other plugins' Skyline hooks.
+  Another plugin's far jump on the site gets chained: this hook goes on a
+  small stub that then jumps on to that plugin's handler, so both run, this
+  one first. Another plugin's one-word branch is relocated into this hook,
+  which is kept only if it is a one-word branch too (otherwise the bytes are
+  put back). Hooks further into the 64 bytes are accepted. The install line
+  says `popup=<stock|chain|branch>/<near|far>`; anything else there gives
+  `popup=foreign/skipped result=not_installed` in
+  `sd:/ultimate/ssbu-quiet-elite-switch/events.log`, as do another game
+  version (`unsupported_version`) and an owner that turns this plugin down
+  (`owner_refused`).
 - No branch lands inside the 16 bytes a hook may rewrite at that address.
 - Plugin API v1, for other plugins through `nn::ro::LookupSymbol` (any load
   order): `ssbu_quiet_elite_switch_hooked_sites_v1(out: *mut usize,

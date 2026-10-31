@@ -27,12 +27,18 @@ the screen goes straight back to Quickplay and Ready to Fight.*
   unchanged ([details](docs/HOOK.md)).
 - **No clashes:** if another plugin wants the same instruction, the two
   share one hook through `ssbu_inline_site_1a1caa8_v1` (found with
-  `nn::ro::LookupSymbol`, any load order) and both keep working.
+  `nn::ro::LookupSymbol`, any load order) and both keep working. A plugin
+  that hooks it without sharing is chained onto instead.
+- **Small:** 40 KiB of game memory once loaded (code and data), no heap use.
 - UI only: no rating, network or match state changes.
 
 **Tested:** Eden, 2026-10-30, 13.0.5 on LAN Online with a rating runtime:
-install line `result=installed role=owner hooks=popup heap_allocations=0`,
-pop-up gone as above. Not tested on Nintendo's servers or a real Switch.
+0.1.0 install line `result=installed role=owner hooks=popup
+heap_allocations=0`, pop-up gone as above. 0.2.0 with a stand-in for a
+plugin that hooks the same instruction without sharing (diagnostic build,
+`foreign=inline`, then `foreign=far`), next to gsp-visualizer and
+elite-rematch: `popup=branch/near` and `popup=chain/far`, `result=installed`,
+pop-up gone, and the stand-in ran too. Not tested on Nintendo's servers or a real Switch.
 
 ## Install
 

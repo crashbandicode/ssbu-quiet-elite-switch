@@ -1,10 +1,12 @@
-//! Switch half: version and guard checks, the one inline hook that marks the
+//! Switch half: version and site checks, the one inline hook that marks the
 //! pop-up as already shown (shared through `share` when another plugin wants
-//! the same instruction), and the plugin API v1 export
+//! the same instruction, chained onto another plugin's hook through `chain`
+//! when that plugin does not share), and the plugin API v1 export
 //! (`ssbu_quiet_elite_switch_hooked_sites_v1`). The hook runs on the game's UI
 //! thread and allocates nothing; the diagnostic build's writer thread logs
 //! each suppressed pop-up to `events.log`.
 
+use crate::chain::{self, hook::Outcome, Entry};
 use crate::model::{self, Site};
 use crate::share;
 use core::fmt::Write as _;
@@ -46,8 +48,8 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 /// Set when this plugin installed the hook itself.
 static OWNER: AtomicBool = AtomicBool::new(false);
-/// Version and guard check result: 0 not run, 1 passed, 2 failed.
-static CHECKS: AtomicU8 = AtomicU8::new(0);
+/// `.1a1caa8`: 0 until `main` decides it, then 1 hooked by this plugin, 2 not.
+static POPUP_STATE: AtomicU8 = AtomicU8::new(0);
 /// Pop-ups suppressed (the flag was clear when the game was about to show one).
 static SUPPRESSED: AtomicU64 = AtomicU64::new(0);
 
@@ -56,10 +58,10 @@ fn tick() -> u64 {
 }
 
 /// The pop-up flag read: the one hook, installed only when this plugin owns
-/// the site (see `share`). Runs this plugin's callback, then every callback
-/// other plugins registered for the site.
-#[skyline::hook(offset = model::POPUP_OFFSET, inline)]
-unsafe fn popup(ctx: &mut InlineCtx) {
+/// the site (see `share`), on another plugin's hook there if it found one
+/// (see `chain`). Runs this plugin's callback, then every callback other
+/// plugins registered for the site.
+unsafe extern "C" fn popup(ctx: &mut InlineCtx) {
     quiet_callback(ctx);
     SHARED.for_each(|callback| {
         let callback: unsafe extern "C" fn(*mut InlineCtx) = core::mem::transmute(callback);
@@ -96,10 +98,15 @@ pub extern "C" fn ssbu_inline_site_1a1caa8_v1() -> *const share::SiteShareV1 {
     &SITE_SHARE
 }
 
-/// Another plugin's callback for `.1a1caa8`; accepted when this plugin will
-/// hook the site (13.0.5, the site as expected).
+/// Another plugin's callback for `.1a1caa8`; taken when this plugin hooks
+/// the site (or will: a registration can come before this `main`, and after
+/// it the site holds this plugin's hook, so the answer is `main`'s).
 unsafe extern "C" fn register_popup(callback: usize) -> bool {
-    checks_pass() && SHARED.push(callback)
+    let hooks = match POPUP_STATE.load(Ordering::Acquire) {
+        0 => version_is_supported() && popup_usable(),
+        state => state == 1,
+    };
+    hooks && SHARED.push(callback)
 }
 
 /// Plugin API v1, found by other plugins with `nn::ro::LookupSymbol`: the
@@ -206,8 +213,45 @@ mod diag {
     static WRITER_STACK_MEMORY: ThreadStack = ThreadStack(UnsafeCell::new([0; WRITER_STACK]));
     static WRITER_THREAD: ThreadObject = ThreadObject(UnsafeCell::new([0; 0x1c0]));
 
+    const OPEN_READ: i32 = 1;
+
+    /// `foreign=` in `diag.txt` (see `chain::Foreign`).
+    pub fn foreign() -> chain::Foreign {
+        let mut file = path(format_args!("{DATA_DIR}/diag.txt"));
+        let Some(file) = file.with_nul() else {
+            return chain::Foreign::None;
+        };
+        let mut buf = [0u8; 128];
+        let mut read = 0u64;
+        unsafe {
+            let mut handle = nn::fs::FileHandle { handle: 0 };
+            if nn::fs::OpenFile(&mut handle, file.as_ptr(), OPEN_READ) != 0 {
+                return chain::Foreign::None;
+            }
+            let ok =
+                nn::fs::ReadFile1(&mut read, handle, 0, buf.as_mut_ptr(), buf.len() as u64) == 0;
+            nn::fs::CloseFile(handle);
+            if !ok {
+                return chain::Foreign::None;
+            }
+        }
+        chain::Foreign::parse(&buf[..(read as usize).min(buf.len())])
+    }
+
+    /// Hooks `.1a1caa8` as a plugin loaded before this one would without
+    /// sharing (inline, or a far jump).
+    pub unsafe fn hook_as_another_plugin(foreign: chain::Foreign) {
+        use chain::hook::standin;
+        let popup = getRegionAddress(Region::Text) as u64 + model::POPUP_OFFSET as u64;
+        match foreign {
+            chain::Foreign::Far => standin::far(popup),
+            _ => standin::inline(popup, 0),
+        }
+    }
+
     extern "C" fn writer_main(_: *mut skyline::libc::c_void) {
         let mut logged = 0;
+        let mut standins = [0; 3];
         loop {
             unsafe {
                 nn::os::SleepThread(nn::TimeSpan {
@@ -219,6 +263,19 @@ mod diag {
                 logged = now;
                 let mut line = Line::<96>::new();
                 let _ = writeln!(line, "{} diag suppressed total={now}", tick());
+                append_log(line.as_bytes());
+            }
+            let hits = chain::hook::standin::HITS.each_ref().map(|h| h.load(Ordering::Relaxed));
+            if hits != standins {
+                standins = hits;
+                let mut line = Line::<96>::new();
+                let _ = writeln!(
+                    line,
+                    "{} diag standin popup_inline={} popup_far={}",
+                    tick(),
+                    hits[0],
+                    hits[2]
+                );
                 append_log(line.as_bytes());
             }
         }
@@ -246,13 +303,30 @@ mod diag {
     }
 }
 
-unsafe fn guard_matches(site: &Site) -> bool {
-    let base = getRegionAddress(Region::Text) as usize;
-    let end = getRegionAddress(Region::Rodata) as usize;
-    let address = base + site.offset;
-    address.is_multiple_of(4)
-        && address + site.guard.len() <= end
-        && core::slice::from_raw_parts(address as *const u8, site.guard.len()) == site.guard
+/// The site's address, when its 64 bytes are in `.text`.
+unsafe fn site_address(site: &Site) -> Option<u64> {
+    let base = getRegionAddress(Region::Text) as u64;
+    let end = getRegionAddress(Region::Rodata) as u64;
+    let address = base + site.offset as u64;
+    (address.is_multiple_of(4) && address + 64 <= end).then_some(address)
+}
+
+/// Whether the hook can go on `.1a1caa8` as it is now (see `chain::entry`).
+fn popup_usable() -> bool {
+    let site = &model::POPUP;
+    unsafe { site_address(site) }.is_some_and(|address| {
+        let words = unsafe { chain::hook::words_at(address) };
+        chain::entry(&site.stock(), &words, address) != Entry::Foreign
+    })
+}
+
+/// Hooks `.1a1caa8`, on another plugin's hook there if it finds one.
+unsafe fn hook_popup() -> (Entry, Outcome) {
+    let site = &model::POPUP;
+    match site_address(site) {
+        Some(address) => chain::hook::inline(address, &site.stock(), popup),
+        None => (Entry::Foreign, Outcome::Skipped),
+    }
 }
 
 fn version_is_supported() -> bool {
@@ -260,23 +334,6 @@ fn version_is_supported() -> bool {
     unsafe { nn::oe::GetDisplayVersion(&mut version) };
     let end = version.name.iter().position(|v| *v == 0).unwrap_or(16);
     version.name[..end] == *model::SUPPORTED_VERSION.as_bytes()
-}
-
-/// The game version and the site's guard, checked once; also asked by
-/// another plugin's registration, which can come before this `main`.
-fn checks_pass() -> bool {
-    match CHECKS.load(Ordering::Acquire) {
-        1 => true,
-        2 => false,
-        _ => {
-            let pass = version_is_supported()
-                && model::SITES
-                    .iter()
-                    .all(|site| unsafe { guard_matches(site) });
-            CHECKS.store(if pass { 1 } else { 2 }, Ordering::Release);
-            pass
-        }
-    }
 }
 
 /// The `SiteShareV1` table whoever's `ssbu_inline_site_1a1caa8_v1` resolves
@@ -323,47 +380,51 @@ pub fn main() {
         report_install(&mut report);
         return;
     }
-    // Election first (see `share`): when another plugin owns `.1a1caa8` its
-    // hook has already changed those bytes, and the owner's `register` runs
-    // its own guard, so only the owner guards the site here.
-    let own_table = &SITE_SHARE as *const share::SiteShareV1 as usize;
-    let role = share::role(site_owner_table(), own_table);
-    if role == share::Role::Owner {
-        for site in model::SITES {
-            if !unsafe { guard_matches(site) } {
-                CHECKS.store(2, Ordering::Release);
-                let _ = write!(report, " result=guard_mismatch site={}", site.name);
-                report_install(&mut report);
-                return;
-            }
+    #[cfg(feature = "diag")]
+    {
+        let foreign = diag::foreign();
+        if foreign != chain::Foreign::None {
+            unsafe { diag::hook_as_another_plugin(foreign) };
+            let _ = write!(report, " foreign={}", foreign.name());
         }
-        CHECKS.store(1, Ordering::Release);
     }
-    // One hook per instruction: install it when this plugin owns `.1a1caa8`,
-    // otherwise run from the owner's hook.
-    match role {
+    // Election first (see `share`): when another plugin owns `.1a1caa8` its
+    // hook is already there, so only the owner reads the site. One hook per
+    // instruction: the owner installs it, the others run from it.
+    let own_table = &SITE_SHARE as *const share::SiteShareV1 as usize;
+    let result = match share::role(site_owner_table(), own_table) {
         share::Role::Owner => {
-            skyline::install_hooks!(popup);
-            OWNER.store(true, Ordering::Release);
+            let (entry, outcome) = unsafe { hook_popup() };
+            let hooked = outcome.hooked();
+            POPUP_STATE.store(if hooked { 1 } else { 2 }, Ordering::Release);
+            OWNER.store(hooked, Ordering::Release);
             let _ = write!(
                 report,
-                " result=installed role=owner hooks=popup guests={}",
+                " role=owner popup={}/{} guests={}",
+                entry.name(),
+                outcome.name(),
                 SHARED.len()
             );
+            if hooked {
+                "installed"
+            } else {
+                "not_installed"
+            }
         }
         share::Role::Guest(table) => {
+            POPUP_STATE.store(2, Ordering::Release);
+            let _ = write!(report, " role=guest owner={table:#x}");
             let api = unsafe { &*(table as *const share::SiteShareV1) };
             if share::compatible(api, model::POPUP_OFFSET)
                 && unsafe { (api.register)(quiet_callback as *const () as usize) }
             {
-                let _ = write!(report, " result=installed role=guest owner={table:#x}");
+                "installed"
             } else {
-                let _ = write!(report, " result=owner_refused owner={table:#x}");
-                report_install(&mut report);
-                return;
+                "owner_refused"
             }
         }
-    }
+    };
+    let _ = write!(report, " result={result}");
     report_install(&mut report);
     #[cfg(feature = "diag")]
     if !diag::start_writer() {

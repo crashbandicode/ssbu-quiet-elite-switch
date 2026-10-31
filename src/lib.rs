@@ -3,6 +3,7 @@
 //! shows a pop-up once per visit. This plugin marks it as already shown, so it
 //! never appears; the screen still switches back from the Elite Smash colours.
 //! UI only: no rating, network or match state changes.
+pub mod chain;
 pub mod model;
 #[cfg(target_os = "switch")]
 mod runtime;

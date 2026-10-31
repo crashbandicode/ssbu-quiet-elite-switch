@@ -1,6 +1,6 @@
 [package]
 name = "ssbu-quiet-elite-switch"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 publish = false
 description = "Skyline plugin for Super Smash Bros. Ultimate 13.0.5 that stops the pop-up the Quickplay character select shows when you switch from a fighter in Elite Smash to one that is not"
@@ -14,7 +14,9 @@ titleid = "01006A800016E000"
 diag = []
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# cdylib only: Cargo skips LTO for a library that is also an rlib, and the
+# unit tests do not need one.
+crate-type = ["cdylib"]
 
 [target.'cfg(target_os = "switch")'.dependencies]
 skyline = "=0.6.0"

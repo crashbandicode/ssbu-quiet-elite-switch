@@ -38,7 +38,13 @@ heap_allocations=0`, pop-up gone as above. 0.2.0 with a stand-in for a
 plugin that hooks the same instruction without sharing (diagnostic build,
 `foreign=inline`, then `foreign=far`), next to gsp-visualizer and
 elite-rematch: `popup=branch/near` and `popup=chain/far`, `result=installed`,
-pop-up gone, and the stand-in ran too. Not tested on Nintendo's servers or a real Switch.
+pop-up gone, and the stand-in ran too.
+
+**Switch, 2026-11-02:** 13.0.5 on Nintendo's servers (Quickplay), next to 15
+other plugins: 0.2.0 (`c65d9cc2…`, built from `dd83f76`) logged
+`role=owner popup=stock/near guests=0 result=installed heap_allocations=0` on
+each of four boots, and the pop-up stayed away in the operator's play
+session.
 
 ## Install
 

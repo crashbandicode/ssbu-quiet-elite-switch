@@ -17,38 +17,28 @@ back from the Elite Smash colours.
 
 ![After: no pop-up](docs/media/after.gif)
 
-*Eden, 2026-10-30: Sephiroth is in Elite Smash, so the character select
-opens as Quickplay (Elite Smash). Selecting him, then Pyra/Mythra (not in
-Elite Smash): without the plugin the game stops on "You haven't unlocked
-Elite Smash with this fighter. Returning to standard matchmaking."; with it,
-the screen goes straight back to Quickplay and Ready to Fight.*
+*Eden, 2026-10-30, runs e13 (no plugin) and e14 (0.1.0, NRO `8e08dbd4…`):
+Sephiroth is in Elite Smash, so the character select opens as Quickplay
+(Elite Smash). Selecting him, then Pyra/Mythra (not in Elite Smash): without
+the plugin the game stops on "You haven't unlocked Elite Smash with this
+fighter. Returning to standard matchmaking."; with it, the screen goes
+straight back to Quickplay and Ready to Fight.*
 
-- One hook, guarded: it installs only on 13.0.5 with the hooked code
-  unchanged ([details](docs/HOOK.md)).
-- **No clashes:** if another plugin wants the same instruction, the two
-  share one hook through `ssbu_inline_site_1a1caa8_v1` (found with
-  `nn::ro::LookupSymbol`, any load order) and both keep working. A plugin
-  that hooks it without sharing is chained onto instead.
-- **Small:** 40 KiB of game memory once loaded (code and data), no heap use.
+- It changes nothing unless the game is 13.0.5 and the code it hooks is the
+  13.0.5 code, or another plugin's hook on it.
+- It keeps working next to other plugins that hook the same spot.
+- Small: 40 KiB of game memory once loaded (code and data), no heap use.
 - UI only: no rating, network or match state changes.
 
-**Tested:** Eden, 2026-10-30, 13.0.5 on LAN Online with a rating runtime:
-0.1.0 install line `result=installed role=owner hooks=popup
-heap_allocations=0`, pop-up gone as above. 0.2.0 with a stand-in for a
-plugin that hooks the same instruction without sharing (diagnostic build,
-`foreign=inline`, then `foreign=far`), next to gsp-visualizer and
-elite-rematch: `popup=branch/near` and `popup=chain/far`, `result=installed`,
-pop-up gone, and the stand-in ran too.
-
-**Switch, 2026-11-02:** 13.0.5 on Nintendo's servers (Quickplay), next to 15
-other plugins: 0.2.0 (`c65d9cc2…`, built from `dd83f76`) logged
-`role=owner popup=stock/near guests=0 result=installed heap_allocations=0` on
-each of four boots, and the pop-up stayed away in the operator's play
-session.
+Tested in Eden (2026-10-30/31) and on a Switch (2026-11-02). 0.2.0 is the
+build on the Switch card (read back 2026-11-12). Details:
+[docs/EVIDENCE.md](docs/EVIDENCE.md); how the hook works:
+[docs/HOOK.md](docs/HOOK.md).
 
 ## Install
 
-Copy `libssbu_quiet_elite_switch.nro` to
+There is no published release. Build it (below), then copy
+`target/aarch64-skyline-switch/release/libssbu_quiet_elite_switch.nro` to
 `sd:/atmosphere/contents/01006A800016E000/romfs/skyline/plugins/`. The
 install line goes to `sd:/ultimate/ssbu-quiet-elite-switch/events.log`.
 

@@ -1,7 +1,10 @@
 # The pop-up and the hook
 
-2026-10-30. Static analysis of the 13.0.5 `main` (memory addresses; file
-offset = address + 0x100).
+2026-10-30. Static analysis of the 13.0.5 `main`. Addresses are offsets from
+the start of its `.text`, the base the plugin adds them to. Rechecked
+2026-11-13 against the decompressed `.text` of the 13.0.5 NSO (sha256
+`eb79e639…`): the 64 guarded bytes, the calls and strings below, and that
+the only `ldrb`/`strb` at `#0xf8e` are the two named here.
 
 ## What the game does
 
@@ -51,11 +54,15 @@ changes; the hook writes only that byte of the CSS object.
   put back). Hooks further into the 64 bytes are accepted. The install line
   says `popup=<stock|chain|branch>/<near|far>`; anything else there gives
   `popup=foreign/skipped result=not_installed` in
-  `sd:/ultimate/ssbu-quiet-elite-switch/events.log`, as do another game
-  version (`unsupported_version`) and an owner that turns this plugin down
-  (`owner_refused`).
+  `sd:/ultimate/ssbu-quiet-elite-switch/events.log`. A hook that does not
+  check out is put back (`/restored`), and a far jump to a handler that is
+  not mapped executable is left alone (`chain/skipped`); both also give
+  `result=not_installed`. Another game version gives
+  `result=unsupported_version`, and an owner that turns this plugin down
+  `result=owner_refused`.
 - No branch lands inside the 16 bytes a hook may rewrite at that address.
 - Plugin API v1, for other plugins through `nn::ro::LookupSymbol` (any load
   order): `ssbu_quiet_elite_switch_hooked_sites_v1(out: *mut usize,
   capacity: usize) -> usize` returns the offsets it hooked (`0x1a1caa8`;
-  none when it did not install), so another plugin can leave it alone.
+  none unless it installed the hook itself, as the owner), so another plugin
+  can leave it alone.

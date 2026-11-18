@@ -37,6 +37,8 @@ build on the Switch card (read back 2026-11-12). Details:
 
 ## Install
 
+Tested on: Super Smash Bros. Ultimate 13.0.5 · Switch firmware 23.5.0 · Atmosphère 1.12.2
+
 There is no published release. Build it (below), then copy
 `target/aarch64-skyline-switch/release/libssbu_quiet_elite_switch.nro` to
 `sd:/atmosphere/contents/01006A800016E000/romfs/skyline/plugins/`. The
